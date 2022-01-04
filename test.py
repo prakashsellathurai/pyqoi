@@ -1,3 +1,4 @@
+from typing import List
 import unittest
 import pyqoi as pqoi
 import numpy as np
@@ -6,22 +7,24 @@ from PIL import Image
 
 class TestEncodingAndDecoding(unittest.TestCase):
     def test_encode(self):
-        assert 1 == 1
         f = Image.open("./qoi_test_images/dice.png")
-        data = f.tobytes()
-        width = f.width
-        height = f.height
-        channels = len(f.getbands())
-        colorspace = f.getexif().get('ColorSpace',0)
+        data: List[str] = [item for t in list(f.getdata()) for item in t]
         out_len = len(data)
-        
-        pqoi.encode(
-            data,
-            pqoi.QoiHeader(
-                width=width, height=height, channels=channels, colorspace=colorspace
-            ),
-            out_len
+
+        desc = pqoi.QoiHeader(
+            width=f.width,
+            height=f.height,
+            channels=len(f.getbands()),
+            colorspace=f.getexif().get("ColorSpace", 0),
         )
+        
+
+        encoded,out_len = pqoi.encode(data, desc, out_len)
+        decoded = pqoi.decode(encoded,len(encoded),desc)
+        
+        
+        
+
         f.close()
 
 
