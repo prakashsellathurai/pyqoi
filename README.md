@@ -14,8 +14,10 @@ PyQoi is a python library for Encoding/Decoding the images in  “[Quite OK Imag
  ```
 
 ## TODO
+
 [x] add encoder for 3/4 channel images
 [x] add decoder
 [x] read/write file
 [ ] add Test cases 
 [ ] add fuzz testing
+
