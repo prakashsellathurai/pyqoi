@@ -51,7 +51,7 @@ class QoiRGBA:
 
 
 ##### Util Functions ####
-def qoiWrite32(bytes: List[str], p: int, v: np.uint):
+def qoiWrite32(bytes: bytearray, p: int, v: np.uint):
     bytes[p] = (0xFF000000 & v) >> 24
     p += 1
     bytes[p] = (0x00FF0000 & v) >> 16
@@ -78,7 +78,7 @@ def qoiRead32(bytes: List[str], p: int) -> Tuple[np.uint, int]:
 ##### IO #################
 
 
-def encode(data: List[str], desc: QoiHeader, out_len: int) -> Tuple[List[str], int]:
+def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
     """Encodes Raw RGB Pixels into Qoi Format
 
     Args:
@@ -110,7 +110,7 @@ def encode(data: List[str], desc: QoiHeader, out_len: int) -> Tuple[List[str], i
     )
 
     p = 0
-    encoded: List[str] = [0] * max_size
+    encoded: bytearray = bytearray(max_size) 
 
     encoded, p = qoiWrite32(encoded, p, QOI_MAGIC)
     encoded, p = qoiWrite32(encoded, p, desc.width)
@@ -134,11 +134,11 @@ def encode(data: List[str], desc: QoiHeader, out_len: int) -> Tuple[List[str], i
     for px_pos in range(0, px_len, channels):
         if channels == 4:
             # TODO work on better way to do this
-            # px = QoiRGBA(rgba=pixels[px_pos:channels])
-            px.rgba.r = pixels[px_pos + 0]
-            px.rgba.g = pixels[px_pos + 1]
-            px.rgba.b = pixels[px_pos + 2]
-            px.rgba.a = pixels[px_pos + 3]
+            px = QoiRGBA(rgba=pixels[px_pos:channels])
+            # px.rgba.r = pixels[px_pos + 0]
+            # px.rgba.g = pixels[px_pos + 1]
+            # px.rgba.b = pixels[px_pos + 2]
+            # px.rgba.a = pixels[px_pos + 3]
         else:
             px.rgba.r = pixels[px_pos + 0]
             px.rgba.g = pixels[px_pos + 1]
@@ -206,10 +206,10 @@ def encode(data: List[str], desc: QoiHeader, out_len: int) -> Tuple[List[str], i
         encoded[p] = qoi_padding[i]
         p += 1
     out_len = p
-    return encoded, out_len
+    return encoded[:p], out_len
 
 
-def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0):
+def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0) -> List[str]:
     """Decodes Encoded Qoi Image into Raw pixels"""
     p: int = 0
     run: int = 0
@@ -348,10 +348,11 @@ def read(filename: str, desc: QoiHeader, channels: Optional[int] = 0) -> np.ndar
     return pixels
 
 
-def write(filename: str, data: bytes, desc: QoiHeader) -> None:
+def write(filename: str, data: bytes, desc: QoiHeader,out_len:int) -> None:
     """writes the Qoi Image to a file"""
     f = open(filename, "wb")
-    out_len = len(data)
     encoded, out_len = encode(data, desc, out_len)
+    from struct import pack
+    # encoded = pack('p',encoded)
     f.write(encoded)
     f.close()
