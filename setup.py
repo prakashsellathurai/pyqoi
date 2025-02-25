@@ -4,7 +4,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="pyqoi",
+    name="pyqoi-lib",
     version="0.1.0",
     author="Prakash S",
     author_email="prakashsellathurai@gmail.com",

@@ -9,7 +9,7 @@ QOI (Quite OK Image format) is a fast, lossless image compression format. Its co
 ## Installation
 
 ```bash
-pip install pyqoi
+pip install pyqoi-lib
 ```
 
 ## Usage
