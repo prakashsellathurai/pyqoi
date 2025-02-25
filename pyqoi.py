@@ -15,7 +15,7 @@ QOI_OP_DIFF = 0x40
 QOI_OP_LUMA = 0x80
 QOI_OP_RUN = 0xC0
 QOI_OP_RGB = 0xFE
-QOI_OP_RGBA = 0xFE
+QOI_OP_RGBA = 0xFF
 
 QOI_MASK_2 = 0xC0
 
@@ -63,7 +63,7 @@ def qoiWrite32(bytes: bytearray, p: int, v: np.uint):
     return bytes, p
 
 
-def qoiRead32(bytes: List[str], p: int) -> Tuple[np.uint, int]:
+def qoiRead32(bytes: List[int], p: int) -> Tuple[np.uint, int]:
     a = bytes[p]
     p += 1
     b = bytes[p]
@@ -87,7 +87,7 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
         out_len (int): Raw RGB/RGBA  data length
 
     Returns:
-        List[int]: encoded data
+        Tuple[bytearray, int]: encoded data and its length
     """
 
     if (
@@ -101,12 +101,12 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
         or desc.colorspace > 1
         or desc.height >= QOI_PIXELS_MAX / desc.width
     ):
-        return None
+        return None, 0
 
     max_size = (
         desc.width * desc.height * (desc.channels + 1)
         + QOI_HEADER_SIZE
-        + sys.getsizeof(qoi_padding)
+        + len(qoi_padding)
     )
 
     p = 0
@@ -122,10 +122,10 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
     p += 1
 
     pixels = data
-    index: List[QoiRGBA] = [QoiRGBA()] * (64)
+    index = [QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=0)) for _ in range(64)]
     run = 0
-    px_prev: QoiRGBA = QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=255))
-    px = px_prev
+    px_prev = QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=255))
+    px = QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=255))
 
     px_len = desc.width * desc.height * desc.channels
     px_end = px_len - desc.channels
@@ -133,16 +133,18 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
 
     for px_pos in range(0, px_len, channels):
         if channels == 4:
-            # TODO work on better way to do this
-            px = QoiRGBA(rgba=pixels[px_pos:channels])
-            # px.rgba.r = pixels[px_pos + 0]
-            # px.rgba.g = pixels[px_pos + 1]
-            # px.rgba.b = pixels[px_pos + 2]
-            # px.rgba.a = pixels[px_pos + 3]
+            px.rgba.r = pixels[px_pos + 0]
+            px.rgba.g = pixels[px_pos + 1]
+            px.rgba.b = pixels[px_pos + 2]
+            px.rgba.a = pixels[px_pos + 3]
         else:
             px.rgba.r = pixels[px_pos + 0]
             px.rgba.g = pixels[px_pos + 1]
             px.rgba.b = pixels[px_pos + 2]
+            px.rgba.a = 255  # Set default alpha for RGB
+
+        # Update QoiRGBA.v for comparison
+        px.v = (px.rgba.r << 24) | (px.rgba.g << 16) | (px.rgba.b << 8) | px.rgba.a 
 
         if px.v == px_prev.v:
             run += 1
@@ -154,13 +156,15 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
             if run > 0:
                 encoded[p] = QOI_OP_RUN | (run - 1)
                 p += 1
+                run = 0 
+            
             index_pos = QOI_COLOR_HASH(px) % 64
 
             if index[index_pos].v == px.v:
                 encoded[p] = QOI_OP_INDEX | index_pos
+                p += 1 
             else:
-                index[index_pos] = px
-
+                index[index_pos] = QoiRGBA(rgba=RGBA(r=px.rgba.r, g=px.rgba.g, b=px.rgba.b, a=px.rgba.a), v=px.v) 
                 if px.rgba.a == px_prev.rgba.a:
                     vr = px.rgba.r - px_prev.rgba.r
                     vg = px.rgba.g - px_prev.rgba.g
@@ -169,15 +173,15 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
                     vg_r = vr - vg
                     vg_b = vb - vg
 
-                    if -3 < vr < 2 and -3 < vg < 2 and -3 < vb < 2:
+                    if -3 <= vr < 2 and -3 <= vg < 2 and -3 <= vb < 2: 
                         encoded[p] = (
-                            QOI_OP_DIFF | (vr + 2) << 4 | (vg + 2) << 2 | (vb + 2)
+                            QOI_OP_DIFF | ((vr + 2) << 4) | ((vg + 2) << 2) | (vb + 2) 
                         )
                         p += 1
-                    elif -9 < vg_r < 8 and -33 < vg < 32 and -9 < vg_b < 8:
+                    elif -9 <= vg_r < 8 and -33 <= vg < 32 and -9 <= vg_b < 8: 
                         encoded[p] = QOI_OP_LUMA | (vg + 32)
                         p += 1
-                        encoded[p] = (vg_r + 8) << 4 | (vg_b + 8)
+                        encoded[p] = ((vg_r + 8) << 4) | (vg_b + 8) 
                         p += 1
                     else:
                         encoded[p] = QOI_OP_RGB
@@ -200,16 +204,16 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
                     encoded[p] = px.rgba.a
                     p += 1
 
-        px_prev = px
+        px_prev = QoiRGBA(rgba=RGBA(r=px.rgba.r, g=px.rgba.g, b=px.rgba.b, a=px.rgba.a), v=px.v) 
 
     for i in range(len(qoi_padding)):
         encoded[p] = qoi_padding[i]
         p += 1
-    out_len = p
-    return encoded[:p], out_len
+    
+    return encoded[:p], p
 
 
-def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0) -> List[str]:
+def decode(data: bytes, size: int, desc: QoiHeader, channels: int = 0) -> bytes: 
     """Decodes Encoded Qoi Image into Raw pixels"""
     p: int = 0
     run: int = 0
@@ -218,18 +222,19 @@ def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0) -> Li
         data is None
         or desc is None
         or (channels != 0 and channels != 3 and channels != 4)
-        or size < QOI_HEADER_SIZE + sys.getsizeof(qoi_padding)
+        or size < QOI_HEADER_SIZE + len(qoi_padding) 
     ):
         return None
 
-    decoded: List[str] = data.__str__()
+    # Convert bytes to list of integers for processing
+    bytes_data = [b for b in data]  
 
-    header_magic, p = qoiRead32(data, p)
-    desc.width, p = qoiRead32(data, p)
-    desc.height, p = qoiRead32(data, p)
-    desc.channels = data[p]
+    header_magic, p = qoiRead32(bytes_data, p)
+    desc.width, p = qoiRead32(bytes_data, p)
+    desc.height, p = qoiRead32(bytes_data, p)
+    desc.channels = bytes_data[p]
     p += 1
-    desc.colorspace = data[p]
+    desc.colorspace = bytes_data[p]
     p += 1
 
     if (
@@ -247,63 +252,69 @@ def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0) -> Li
         channels = desc.channels
 
     px_len: int = desc.width * desc.height * channels
-    pixels: List[str] = [0] * px_len
+    pixels = bytearray(px_len)
 
     if not pixels:
         return None
 
-    index: List[QoiRGBA] = [QoiRGBA()] * (64)
-    px = QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=255))
+    index = [QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=0), v=0) for _ in range(64)] 
+    px = QoiRGBA(rgba=RGBA(r=0, g=0, b=0, a=255), v=0) 
+    px.v = (px.rgba.r << 24) | (px.rgba.g << 16) | (px.rgba.b << 8) | px.rgba.a  # Set initial v value
 
-    chunks_len = size - int(sys.getsizeof(qoi_padding))
-
+    chunks_len = size - len(qoi_padding) 
     for px_pos in range(0, px_len, channels):
         if run > 0:
             run -= 1
         elif p < chunks_len:
-            b1: int = data[p]
+            b1 = bytes_data[p] 
             p += 1
 
             if b1 == QOI_OP_RGB:
-                px.rgba.r = bytes[p]
+                px.rgba.r = bytes_data[p] 
                 p += 1
-                px.rgba.g = bytes[p]
+                px.rgba.g = bytes_data[p]
                 p += 1
-                px.rgba.b = bytes[p]
+                px.rgba.b = bytes_data[p]
                 p += 1
             elif b1 == QOI_OP_RGBA:
-                px.rgba.r = bytes[p]
+                px.rgba.r = bytes_data[p]
                 p += 1
-                px.rgba.g = bytes[p]
+                px.rgba.g = bytes_data[p]
                 p += 1
-                px.rgba.b = bytes[p]
+                px.rgba.b = bytes_data[p]
                 p += 1
-                px.rgba.a = bytes[p]
+                px.rgba.a = bytes_data[p]
                 p += 1
             elif (b1 & QOI_MASK_2) == QOI_OP_INDEX:
-                px = index[b1]
+                idx = b1 & 0x3F  
+                px.rgba.r = index[idx].rgba.r
+                px.rgba.g = index[idx].rgba.g
+                px.rgba.b = index[idx].rgba.b
+                px.rgba.a = index[idx].rgba.a
             elif (b1 & QOI_MASK_2) == QOI_OP_DIFF:
-                px.rgba.r += ((b1 >> 4) & 0x03) - 2
-                px.rgba.g += ((b1 >> 2) & 0x03) - 2
-                px.rgba.b += (b1 & 0x03) - 2
+                px.rgba.r = (px.rgba.r + ((b1 >> 4) & 0x03) - 2) & 0xFF
+                px.rgba.g = (px.rgba.g + ((b1 >> 2) & 0x03) - 2) & 0xFF
+                px.rgba.b = (px.rgba.b + (b1 & 0x03) - 2) & 0xFF
             elif (b1 & QOI_MASK_2) == QOI_OP_LUMA:
-                b2 = bytes[p]
+                b2 = bytes_data[p]  
                 p += 1
                 vg = (b1 & 0x3F) - 32
-                px.rgba.r += vg - 8 + (b2 >> 4) & 0x0F
-                px.rgba.g += vg
-                px.rgba.b += vg - 8 + (b2 & 0x0F)
+                px.rgba.r = (px.rgba.r + vg - 8 + ((b2 >> 4) & 0x0F)) & 0xFF
+                px.rgba.g = (px.rgba.g + vg) & 0xFF
+                px.rgba.b = (px.rgba.b + vg - 8 + (b2 & 0x0F)) & 0xFF
             elif (b1 & QOI_MASK_2) == QOI_OP_RUN:
-                run = b1 & 0x3F
-            index[QOI_COLOR_HASH(px) % 64] = px
+                run = (b1 & 0x3F)
+            
+            # Update v value and index
+            px.v = (px.rgba.r << 24) | (px.rgba.g << 16) | (px.rgba.b << 8) | px.rgba.a
+            index_pos = QOI_COLOR_HASH(px) % 64
+            index[index_pos] = QoiRGBA(rgba=RGBA(r=px.rgba.r, g=px.rgba.g, b=px.rgba.b, a=px.rgba.a), v=px.v)
 
         if channels == 4:
-            # TODO work on better way to do this
             pixels[px_pos + 0] = px.rgba.r
             pixels[px_pos + 1] = px.rgba.g
             pixels[px_pos + 2] = px.rgba.b
             pixels[px_pos + 3] = px.rgba.a
-
         else:
             pixels[px_pos + 0] = px.rgba.r
             pixels[px_pos + 1] = px.rgba.g
@@ -312,47 +323,54 @@ def decode(data: List[str], size: int, desc: QoiHeader, channels: int = 0) -> Li
     return pixels
 
 
-def read(filename: str, desc: QoiHeader, channels: Optional[int] = 0) -> np.ndarray:
+def read(filename: str, desc: QoiHeader, channels: Optional[int] = 0) -> bytes: 
     """Reads a Qoi Image from a file
 
     Args:
-        filename (str):
-        channels (Optional[int]): [color channel]
+        filename (str): Path to QOI file
+        desc (QoiHeader): QoiHeader to populate
+        channels (Optional[int]): Desired color channels (0 to use file's channels)
 
     Returns:
-        np.ndarray: Numpy array representing pixel data
+        bytes: Pixel data as bytes
     """
 
     # check is the file exists
     if not os.path.isfile(filename):
         print("File not Found Error")
-        return
+        return None
 
     # create file object f
-    f = open(filename, "rb")
-
-    # seek the end of the file
-    f.seek(0, 2)
-
-    # get the file size
-    size: int = f.tell()
-
-    # go to the beginnning of the file again
-    f.seek(0)
-
-    bytes = f.read(size)
-
-    pixels = decode(bytes, size, desc)
-
-    f.close()
+    with open(filename, "rb") as f:
+        # seek the end of the file
+        f.seek(0, 2)
+        
+        # get the file size
+        size: int = f.tell()
+        
+        # go to the beginning of the file again
+        f.seek(0)
+        
+        # read the file
+        file_data = f.read(size)
+    
+    # Decode the QOI data
+    pixels = decode(file_data, size, desc, channels)
+    
     return pixels
 
 
-def write(filename: str, data: bytes, desc: QoiHeader,out_len:int) -> None:
-    """writes the Qoi Image to a file"""
-    f = open(filename, "wb")
-    encoded, out_len = encode(data, desc, out_len)
-    from struct import pack
-    # encoded = pack('p',encoded)
-    f.write(encoded)
-    f.close()
+def write(filename: str, data: bytes, desc: QoiHeader, out_len: int) -> None:
+    """writes the Qoi Image to a file
+    
+    Args:
+        filename (str): Output filename
+        data (bytes): Raw pixel data
+        desc (QoiHeader): Image header information
+        out_len (int): Length of pixel data
+    """
+    encoded, length = encode(data, desc, out_len)
+    
+    if encoded is not None:
+        with open(filename, "wb") as f:
+            f.write(encoded)
