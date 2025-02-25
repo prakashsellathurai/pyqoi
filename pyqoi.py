@@ -77,7 +77,6 @@ def qoiRead32(bytes: List[int], p: int) -> Tuple[np.uint, int]:
 
 ##### IO #################
 
-
 def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
     """Encodes Raw RGB Pixels into Qoi Format
 
@@ -178,10 +177,10 @@ def encode(data: bytes, desc: QoiHeader, out_len: int) -> Tuple[bytearray, int]:
                             QOI_OP_DIFF | ((vr + 2) << 4) | ((vg + 2) << 2) | (vb + 2) 
                         )
                         p += 1
-                    elif -9 <= vg_r < 8 and -33 <= vg < 32 and -9 <= vg_b < 8: 
+                    elif -8 <= vg_r <= 7 and -33 <= vg <= 31 and -8 <= vg_b <= 7: 
                         encoded[p] = QOI_OP_LUMA | (vg + 32)
                         p += 1
-                        encoded[p] = ((vg_r + 8) << 4) | (vg_b + 8) 
+                        encoded[p] = ((vg_r + 8) << 4) | (vg_b + 8)
                         p += 1
                     else:
                         encoded[p] = QOI_OP_RGB
@@ -299,9 +298,11 @@ def decode(data: bytes, size: int, desc: QoiHeader, channels: int = 0) -> bytes:
                 b2 = bytes_data[p]  
                 p += 1
                 vg = (b1 & 0x3F) - 32
-                px.rgba.r = (px.rgba.r + vg - 8 + ((b2 >> 4) & 0x0F)) & 0xFF
+                vg_r = ((b2 >> 4) & 0x0F) - 8
+                vg_b = (b2 & 0x0F) - 8
+                px.rgba.r = (px.rgba.r + vg + vg_r) & 0xFF
                 px.rgba.g = (px.rgba.g + vg) & 0xFF
-                px.rgba.b = (px.rgba.b + vg - 8 + (b2 & 0x0F)) & 0xFF
+                px.rgba.b = (px.rgba.b + vg + vg_b) & 0xFF
             elif (b1 & QOI_MASK_2) == QOI_OP_RUN:
                 run = (b1 & 0x3F)
             
@@ -321,7 +322,6 @@ def decode(data: bytes, size: int, desc: QoiHeader, channels: int = 0) -> bytes:
             pixels[px_pos + 2] = px.rgba.b
 
     return pixels
-
 
 def read(filename: str, desc: QoiHeader, channels: Optional[int] = 0) -> bytes: 
     """Reads a Qoi Image from a file

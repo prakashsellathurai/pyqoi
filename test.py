@@ -345,5 +345,58 @@ class TestPyQOI(unittest.TestCase):
         for i in range(len(pattern_data)):
             self.assertEqual(decoded_data[i], pattern_data[i])
 
+    def test_fuzzing(self):
+        """Test the robustness of the decoder against corrupted data"""
+        import random
+        
+        # First create valid encoded data
+        encoded_data, encoded_len = encode(self.rgba_data, self.rgba_header, len(self.rgba_data))
+        self.assertIsNotNone(encoded_data)
+        
+        # Create a mutable copy of the encoded data
+        fuzzed_data = bytearray(encoded_data)
+        
+        # Number of bytes to corrupt (about 10% of the data)
+        num_corruptions = max(1, encoded_len // 10)
+        
+        # Fuzzing test iterations
+        for _ in range(5):  # Run 5 different corruption patterns
+            # Reset fuzzed data to original
+            fuzzed_data = bytearray(encoded_data)
+            
+            # Corrupt random bytes
+            for _ in range(num_corruptions):
+                # Choose a random position (avoiding header bytes for better test focus)
+                pos = random.randint(14, encoded_len - 1)  # QOI header is 14 bytes
+                
+                # Replace with random byte
+                fuzzed_data[pos] = random.randint(0, 255)
+            
+            # Create header for decoding
+            decode_header = QoiHeader(0, 0, 0, 0)
+            
+            # Try to decode the corrupted data - it shouldn't crash
+            try:
+                decoded_data = decode(bytes(fuzzed_data), encoded_len, decode_header)
+                
+                # It's okay if decode returns None for badly corrupted data
+                if decoded_data is not None:
+                    # If we got data back, make sure it's the right size or None
+                    # (The exact pixel values might not match due to corruption)
+                    expected_size = self.rgba_header.width * self.rgba_header.height * self.rgba_header.channels
+                    self.assertEqual(len(decoded_data), expected_size)
+            except Exception as e:
+                self.fail(f"Decoder crashed on corrupted data: {str(e)}")
+        
+        # Test totally random data
+        random_data = bytearray(random.randint(0, 255) for _ in range(100))
+        decode_header = QoiHeader(0, 0, 0, 0)
+        
+        # This should not crash, but may return None
+        try:
+            result = decode(bytes(random_data), len(random_data), decode_header)
+            # We're not asserting anything about the result, just that it doesn't crash
+        except Exception as e:
+            self.fail(f"Decoder crashed on random data: {str(e)}")
 if __name__ == "__main__":
     unittest.main(verbosity=2)
